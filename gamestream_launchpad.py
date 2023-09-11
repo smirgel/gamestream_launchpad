@@ -11,6 +11,9 @@ import psutil
 import os
 import sys
 from time import sleep
+import logging
+
+
 
 # Window enumeration handler function per https://www.blog.pythonlibrary.org/2014/10/20/pywin32-how-to-bring-a-window-to-front/
 def windowEnumerationHandler(hwnd, top_windows):
@@ -19,9 +22,9 @@ def windowEnumerationHandler(hwnd, top_windows):
 
 def set_resolution(gamestream_width, gamestream_height,refresh_rate=None):
     if refresh_rate is None:
-        print("Switching resolution to {0}x{1}".format(gamestream_width, gamestream_height))
+        logger.info("Switching resolution to {0}x{1}".format(gamestream_width, gamestream_height))
     else:
-        print("Switching resolution to {0}x{1} at {2}Hz".format(gamestream_width, gamestream_height,refresh_rate))
+        logger.info("Switching resolution to {0}x{1} at {2}Hz".format(gamestream_width, gamestream_height,refresh_rate))
     devmode = pywintypes.DEVMODEType()
     devmode.PelsWidth = int(gamestream_width)
     devmode.PelsHeight = int(gamestream_height)
@@ -51,7 +54,7 @@ def reset_launcher_resolution(gamestream_width, gamestream_height, launcher_wind
         current_width = str(win32api.GetSystemMetrics(0))
         current_height = str(win32api.GetSystemMetrics(1))
         if current_width != gamestream_width and current_height != gamestream_height:
-            print("Resolutions don't match, changing from", current_width, current_height, "to", gamestream_width, gamestream_height)
+            logger.info("Resolutions don't match, changing from", current_width, current_height, "to", gamestream_width, gamestream_height)
             set_resolution(gamestream_width, gamestream_height)
 
 def handle_processes(paths, terminate):
@@ -59,7 +62,7 @@ def handle_processes(paths, terminate):
         expanded_path = os.path.expandvars(paths[path])
         if os.path.exists(expanded_path):
             exec_name = os.path.basename(expanded_path)
-            print("Terminating" if terminate else "Launching", expanded_path)
+            logger.info("Terminating" if terminate else "Launching", expanded_path)
             # Terminate even if launching, so that we kill it if it's already running
             if exec_name in (get_process_name(p) for p in psutil.process_iter()):
                 os.system('taskkill /f /im ' + exec_name)
@@ -103,6 +106,26 @@ sleep_on_exit = 0
 close_watch_method = window
 """
 
+logging.basicConfig(
+    level=logging.DEBUG,
+    #format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+    format='%(asctime)s - %(name)-11s - %(levelname)-5s - %(message)s',
+    #stream=sys.stdout
+    handlers=[
+        logging.FileHandler("gamestream.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger('gamestream')
+
+# logFormatter = logging.Formatter('%(asctime)s - %(name)-11s - %(levelname)-5s - %(message)s')
+# rootLogger = logging.getLogger()
+# fileHandler = logging.FileHandler("gamestream.log")
+# fileHandler.setFormatter(logFormatter)
+# rootLogger.addHandler(fileHandler)
+
+
 # Write the default config
 if not os.path.exists(config_filename):
     with open(config_filename, 'w') as out_file:
@@ -133,8 +156,8 @@ try:
     if len(sys.argv) == 4:
         config_filename = sys.argv[3]
 except IndexError:
-    print("Error parsing arguments. Did you mean to run one of the .bat launcher scripts?")
-    print("Usage: gamestream_launchpad.exe 1920 1080 [config.ini] [-r refresh_rate_hz]")
+    logger.info("Error parsing arguments. Did you mean to run one of the .bat launcher scripts?")
+    logger.info("Usage: gamestream_launchpad.exe 1920 1080 [config.ini] [-r refresh_rate_hz]")
     input("Press Enter to exit.")
     sys.exit(1)
 
@@ -170,7 +193,7 @@ if cfg_launcher_path.lower() == "false":
     input('Press enter to end the GameStream session.')
 else:
     # Minimize all windows
-    print("Minimizing windows")
+    logger.info("Minimizing windows")
     pyautogui.hotkey('winleft', 'd')
     sleep(3)
 
@@ -186,7 +209,7 @@ else:
         pyautogui.moveTo(9999, 9999, duration = 0)
 
     # Start game launcher
-    print("Starting game launcher")
+    logger.info("Starting game launcher")
     launcher_exe = os.path.expandvars(cfg_launcher_path)
     subprocess.Popen(launcher_exe)
 
@@ -199,9 +222,9 @@ else:
         for i in top_windows:
             if cfg_launcher_window_name in i[1]:
                 if not 'Fullscreen' in cfg_launcher_path:
-                    print("Maximizing", cfg_launcher_window_name)
+                    logger.info(f"Maximizing {cfg_launcher_window_name}")
                     win32gui.ShowWindow(i[0], 3)
-                print("Focusing", cfg_launcher_window_name)
+                logger.info(f"Focusing {cfg_launcher_window_name}")
                 win32gui.SetForegroundWindow(i[0])
                 launcher_focused = True
                 launcher_window_handle = i[0]
@@ -210,14 +233,14 @@ else:
 
     # Watch for closing the launcher window to return to the system's original configuration
     if close_watch_method == "window":
-        print("Watching for launcher window to close")
+        logger.info("Watching for launcher window to close")
         while win32gui.IsWindowVisible(launcher_window_handle):
             #print("Visible:", launcher_window_handle)
             sleep(2)
             reset_launcher_resolution(gamestream_width, gamestream_height, cfg_launcher_window_name)
     # Alternative method that waits for the process to die (can be problematic if it minimizes to system tray)
     elif close_watch_method == "process":
-        print("Watching for launcher process to die")
+        logger.info("Watching for launcher process to die")
         while True:
             if launcher_exec_name in (get_process_name(p) for p in psutil.process_iter()):
                 sleep(2)
@@ -232,7 +255,7 @@ else:
                 playnite_mutex_handle = win32event.OpenMutex(win32event.SYNCHRONIZE, False, "PlayniteInstaceMutex")
                 break
             except Exception as e:
-                print(f"Exception attempting to open Playnite mutex:{e}")
+                logger.info(f"Exception attempting to open Playnite mutex:{e}")
                 sleep(0.1)
         #Playnite creates and locks a mutex so if we can lock the mutex it means Playnite has quit
         win32event.WaitForSingleObject(playnite_mutex_handle,0xffffffff)
@@ -241,7 +264,7 @@ else:
         win32api.CloseHandle(playnite_mutex_handle)
         
     else:
-        print("No valid close_watch_method in the config. Press Enter when you're done.")
+        logger.info("No valid close_watch_method in the config. Press Enter when you're done.")
         input()
 
 # Terminate background and launch session_end programs, if they're available
@@ -250,19 +273,19 @@ launch_processes(cfg_end_paths)
 
 # Restore original resolution
 if skip_res_reset == False:
-    print('Restoring original resolution.')
+    logger.info('Restoring original resolution.')
     win32api.ChangeDisplaySettings(None, 0)
 
 # Kill gamestream
 if no_nv_kill == False:
-    print("Terminating GameStream session.")
+    logger.info("Terminating GameStream session.")
     if "nvstreamer.exe" in (get_process_name(p) for p in psutil.process_iter()):
         os.system('taskkill /f /im nvstreamer.exe')
 
 
 if sleep_on_exit == '1':
 # Put computer to sleep
-    print("Going to sleep")
+    logger.info("Going to sleep")
     os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
 
 if debug == '1':
